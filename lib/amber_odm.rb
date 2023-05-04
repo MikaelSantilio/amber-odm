@@ -25,7 +25,7 @@ module AmberODM
   end
 
   class AttrInitializer
-    attr_reader :document
+    attr_reader :_document
 
     def initialize(document)
       self.class.fields.each do |field|
@@ -49,7 +49,7 @@ module AmberODM
     end
 
     def nil?
-      document.nil? || document.empty?
+      _document.nil? || _document.empty?
     end
 
     def self.array_to_h(array)
@@ -67,7 +67,7 @@ module AmberODM
     def to_h
       hash = {}
       known_fields = self.class.fields
-      unknown_fields = document.keys - known_fields
+      unknown_fields = _document.keys - known_fields
       unknown_fields.reject! { |field| field.start_with?('_') }
       known_fields.each do |field|
         value = send(field)
@@ -80,7 +80,7 @@ module AmberODM
         end
       end
       unknown_fields.each do |field|
-        value = document[field]
+        value = _document[field]
         hash[field] = value
       end
 
@@ -90,17 +90,19 @@ module AmberODM
 
   class Document < AttrInitializer
 
-    attr_reader :_id, :_score, :sort
+    attr_reader :_id, :_score, :sort, :_seq_no, :_primary_term
 
     def initialize(document)
       @_id = document&.dig('_id').dup
       @_score = document&.dig('_score').dup
       @sort = document&.dig('sort').dup
+      @_seq_no = document&.dig('_seq_no').dup
+      @_primary_term = document&.dig('_primary_term').dup
       self.class.fields.each do |field|
         document_value = document&.dig('_source')&.dig(field).dup
-        send("#{field}=", document_value) unless document_value.nil?
+        send("#{field}=", document_value)
       end
-      instance_variable_set('@document', document)
+      instance_variable_set('@_document', document)
     end
 
     # @return [Symbol, nil]
@@ -111,6 +113,10 @@ module AmberODM
     # @return [Symbol, String, nil]
     def self.index_name
       nil
+    end
+
+    def self.use_seq_verification
+      true
     end
 
     # @return [Elasticsearch::Client] The ES client
@@ -129,7 +135,6 @@ module AmberODM
     # @return [Array<self>] The documents
     def search(query, _source: [], sort: [], search_after: [], size: 0)
       # self.class.validate_fields_from_stages(query, _source, sort)
-
       if _source.empty?
         _source = self.class.fields
       end
@@ -139,6 +144,7 @@ module AmberODM
       end
 
       body = { _source: _source, query: query }
+      body[:seq_no_primary_term] = true if self.class.use_seq_verification
       body[:sort] = sort unless sort.empty?
       body[:search_after] = search_after unless search_after.empty?
       body[:size] = size unless size.zero?
@@ -174,13 +180,18 @@ module AmberODM
         end
       end
 
-      {
+      update_hash = {
         update: {
           _index: self.class.index_name&.to_s,
           _id: _id,
           data: { doc: aggregation_hash }
         }
       }
+      if use_seq_verification
+        update_hash[:update][:if_seq_no] = _seq_no
+        update_hash[:update][:if_primary_term] = _primary_term
+      end
+      update_hash
     end
 
   end
