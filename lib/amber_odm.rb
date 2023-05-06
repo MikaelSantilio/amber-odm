@@ -187,7 +187,7 @@ module AmberODM
           data: { doc: aggregation_hash }
         }
       }
-      if use_seq_verification
+      if self.class.use_seq_verification
         update_hash[:update][:if_seq_no] = _seq_no
         update_hash[:update][:if_primary_term] = _primary_term
       end
