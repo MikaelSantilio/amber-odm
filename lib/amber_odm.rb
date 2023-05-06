@@ -98,7 +98,11 @@ module AmberODM
       @sort = document&.dig('sort').dup
       @_seq_no = document&.dig('_seq_no').dup
       @_primary_term = document&.dig('_primary_term').dup
-      self.class.fields.each do |field|
+      fields = self.class.fields
+      fields.each do |field|
+        if ['_id', '_score', 'sort', '_seq_no', '_primary_term'].include?(field)
+          raise Exceptions::ReservedField.new("Field #{field} is reserved, remove it from the fields list")
+        end
         document_value = document&.dig('_source')&.dig(field).dup
         send("#{field}=", document_value)
       end
@@ -198,6 +202,7 @@ module AmberODM
 
   module Exceptions
     class MissingDatabaseSettings < StandardError; end
+    class ReservedField < StandardError; end
     class UnknownWriteFieldException < StandardError; end
     class IllegalArgumentException < StandardError
       def initialize(msg = 'query malformed, empty clause')
